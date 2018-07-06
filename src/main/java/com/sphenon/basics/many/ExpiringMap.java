@@ -160,8 +160,8 @@ public class ExpiringMap<K, V> implements Map<K, V> {
     private void cleanup() {
         ExpiringKey<K> delayed_key = delayQueue.poll();
         while (delayed_key != null) {
-            value_map.remove(delayed_key.get_key());
-            key_map.remove(delayed_key.get_key());
+            value_map.remove(delayed_key.getKey());
+            key_map.remove(delayed_key.getKey());
             delayed_key = delayQueue.poll();
         }
     }
