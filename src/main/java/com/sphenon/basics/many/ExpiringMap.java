@@ -1,7 +1,7 @@
 package com.sphenon.basics.many;
 
 /****************************************************************************
-  Copyright 2001-2018 Sphenon GmbH
+  Copyright 2001-2024 Sphenon GmbH
 
   Licensed under the Apache License, Version 2.0 (the "License"); you may not
   use this file except in compliance with the License. You may obtain a copy
@@ -14,18 +14,30 @@ package com.sphenon.basics.many;
   under the License.
 *****************************************************************************/
 
+import com.sphenon.basics.context.*;
+import com.sphenon.basics.message.*;
+import com.sphenon.basics.exception.*;
+import com.sphenon.basics.notification.*;
+import com.sphenon.basics.customary.*;
+
 import java.util.*;
 import java.util.Map.Entry;
 import java.util.concurrent.*;
 
 public class ExpiringMap<K, V> implements Map<K, V> {
+    static final public Class _class = ExpiringMap.class;
+
+    static protected long notification_level;
+    static public    long adjustNotificationLevel(long new_level) { long old_level = notification_level; notification_level = new_level; return old_level; }
+    static public    long getNotificationLevel() { return notification_level; }
+    static { notification_level = NotificationLocationContext.getLevel(_class); };
 
     private final Map<K, V> value_map;
     private final Map<K, ExpiringKey<K>> key_map;
 
     private final DelayQueue<ExpiringKey> delayQueue = new DelayQueue<ExpiringKey>();
 
-    private final long max_life_time_millis;
+    private long max_life_time_millis;
 
     public ExpiringMap() {
         value_map = new ConcurrentHashMap<K, V>();
@@ -49,6 +61,17 @@ public class ExpiringMap<K, V> implements Map<K, V> {
         value_map = new ConcurrentHashMap<K, V>(initial_capacity, load_factor);
         key_map = new WeakHashMap<K, ExpiringKey<K>>(initial_capacity, load_factor);
         this.max_life_time_millis = default_max_life_time_millis;
+    }
+
+    public void setDefaultMaxLifeTimeMillis(long default_max_life_time_millis) {
+        this.max_life_time_millis = default_max_life_time_millis;
+    }
+
+    public void setMaxLifeTimeMillis(long max_life_time_millis, K key) {
+        ExpiringKey expiring_key = key_map.get(key);
+        if (expiring_key != null) {
+            expiring_key.setMaxLifeTimeMillis(max_life_time_millis);
+        }
     }
 
     public int size() {
@@ -91,9 +114,9 @@ public class ExpiringMap<K, V> implements Map<K, V> {
         return value;
     }
 
-    public V put(K key, V value, long life_time_millis) {
+    public V put(K key, V value, long max_life_time_millis) {
         cleanup();
-        ExpiringKey delayed_key = new ExpiringKey(key, life_time_millis);
+        ExpiringKey delayed_key = new ExpiringKey(key, max_life_time_millis);
         ExpiringKey old_key = key_map.put((K) key, delayed_key);
         if(old_key != null) {
             expireKey(old_key);
@@ -103,13 +126,13 @@ public class ExpiringMap<K, V> implements Map<K, V> {
         return value_map.put(key, value);
     }
 
-    public K putAndReturnKey(K key, V value, long life_time_millis) {
-        this.put(key, value, life_time_millis);
+    public K putAndReturnKey(K key, V value, long max_life_time_millis) {
+        this.put(key, value, max_life_time_millis);
         return key;
     }
 
-    public V putAndReturnValue(K key, V value, long life_time_millis) {
-        this.put(key, value, life_time_millis);
+    public V putAndReturnValue(K key, V value, long max_life_time_millis) {
+        this.put(key, value, max_life_time_millis);
         return value;
     }
 
@@ -162,6 +185,7 @@ public class ExpiringMap<K, V> implements Map<K, V> {
         while (delayed_key != null) {
             value_map.remove(delayed_key.getKey());
             key_map.remove(delayed_key.getKey());
+            if ((notification_level & Notifier.DIAGNOSTICS) != 0) { NotificationContext.sendDiagnostics(com.sphenon.basics.context.classes.RootContext.getFallbackCallContext(), "Key expired: '%(key)'", "key", delayed_key.getKey()); }
             delayed_key = delayQueue.poll();
         }
     }
@@ -169,12 +193,17 @@ public class ExpiringMap<K, V> implements Map<K, V> {
     private class ExpiringKey<K> implements Delayed {
 
         private long startTime = System.currentTimeMillis();
-        private final long max_life_time_millis;
+        private long max_life_time_millis;
         private final K key;
 
         public ExpiringKey(K key, long max_life_time_millis) {
             this.max_life_time_millis = max_life_time_millis;
             this.key = key;
+            if ((notification_level & Notifier.SELF_DIAGNOSTICS) != 0) { NotificationContext.sendSelfDiagnostics(com.sphenon.basics.context.classes.RootContext.getFallbackCallContext(), "New ExpiringKey '%(key)' with lifetime %(lifetime) and start time %(starttime)", "key", key, "lifetime", max_life_time_millis, "starttime", startTime); }
+        }
+
+        public void setMaxLifeTimeMillis(long max_life_time_millis) {
+            this.max_life_time_millis = max_life_time_millis;
         }
 
         public K getKey() {
@@ -202,19 +231,26 @@ public class ExpiringMap<K, V> implements Map<K, V> {
         }
 
         public long getDelay(TimeUnit unit) {
-            return unit.convert(getDelayMillis(), TimeUnit.MILLISECONDS);
+            long delay = unit.convert(getDelayMillis(), TimeUnit.MILLISECONDS);
+            if ((notification_level & Notifier.SELF_DIAGNOSTICS) != 0) { NotificationContext.sendSelfDiagnostics(com.sphenon.basics.context.classes.RootContext.getFallbackCallContext(), "Delay requested from ExpiringKey '%(key)', delay %(delay)", "key", key, "delay", delay); }
+            return delay;
         }
 
         private long getDelayMillis() {
-            return (startTime + max_life_time_millis) - System.currentTimeMillis();
+            long ctm = System.currentTimeMillis();
+            long dm  = (startTime + max_life_time_millis) - ctm;
+            if ((notification_level & Notifier.SELF_DIAGNOSTICS) != 0) { NotificationContext.sendSelfDiagnostics(com.sphenon.basics.context.classes.RootContext.getFallbackCallContext(), "DelayMillis requested from ExpiringKey '%(key)', startTime %(startTime), max_life_time_millis %(max_life_time_millis), current_time_millis %(currenttimemillis), delay_millis %(delaymillis)", "key", key, "startTime", startTime, "max_life_time_millis", max_life_time_millis, "currenttimemillis", ctm, "delaymillis", dm); }
+            return dm;
         }
 
         public void renew() {
             startTime = System.currentTimeMillis();
+            if ((notification_level & Notifier.SELF_DIAGNOSTICS) != 0) { NotificationContext.sendSelfDiagnostics(com.sphenon.basics.context.classes.RootContext.getFallbackCallContext(), "Renewed ExpiringKey '%(key)', start time now %(starttime)", "key", key, "starttime", startTime); }
         }
 
         public void expire() {
             startTime =  System.currentTimeMillis() - max_life_time_millis - 1;
+            if ((notification_level & Notifier.SELF_DIAGNOSTICS) != 0) { NotificationContext.sendSelfDiagnostics(com.sphenon.basics.context.classes.RootContext.getFallbackCallContext(), "Explicitly expired ExpiringKey '%(key)', start time now %(starttime)", "key", key, "starttime", startTime); }
         }
 
         public int compareTo(Delayed that) {

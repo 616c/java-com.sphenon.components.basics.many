@@ -1,7 +1,7 @@
 package com.sphenon.basics.expression;
 
 /****************************************************************************
-  Copyright 2001-2018 Sphenon GmbH
+  Copyright 2001-2024 Sphenon GmbH
 
   Licensed under the Apache License, Version 2.0 (the "License"); you may not
   use this file except in compliance with the License. You may obtain a copy
@@ -22,6 +22,8 @@ import com.sphenon.basics.exception.*;
 import com.sphenon.basics.customary.*;
 import com.sphenon.basics.encoding.*;
 import com.sphenon.basics.many.*;
+import com.sphenon.basics.data.*;
+import com.sphenon.basics.operations.*;
 
 import com.sphenon.basics.expression.classes.*;
 import com.sphenon.basics.expression.returncodes.*;
@@ -43,8 +45,13 @@ public class ExpressionEvaluator_MultiIterator implements ExpressionEvaluator {
         return new String[] { "multiiterator" };
     }
 
-    public Object evaluate(CallContext context, String instruction, Scope scope) throws EvaluationFailure {
+    public Object evaluate(CallContext context, String instruction, Scope scope, DataSink<Execution> execution_sink) throws EvaluationFailure {
         if (instruction == null) { return null; }
+
+        boolean return_all_levels = instruction.startsWith("[*]") ? true : false;
+        if (return_all_levels) {
+            instruction = instruction.substring(3);
+        }
 
         String[] part_expressions = instruction.split("!\\*!",-1);
         int l = part_expressions.length;
@@ -58,7 +65,7 @@ public class ExpressionEvaluator_MultiIterator implements ExpressionEvaluator {
             part_expressions = Arrays.copyOfRange(part_expressions, 0, l-1);
         }
 
-        ObjectIterable oi = ObjectIterable.createWithExpressions(context, scope, false, last_is_value, part_expressions);
+        ObjectIterable oi = ObjectIterable.createWithExpressions(context, scope, return_all_levels, last_is_value, part_expressions);
 
         return oi;
     }
